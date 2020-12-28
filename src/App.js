@@ -7,6 +7,8 @@ import Register from './components/Register/Register';
 import Logo from './components/Logo/Logo';
 import ImageLinkForm from './components/ImageLinkForm/ImageLinkForm';
 import Rank from './components/Rank/Rank';
+import Modal from './components/Modal/Modal';
+import Profile from './components/Profile/Profile';
 import './App.css';
 
 const particlesOptions = {
@@ -28,12 +30,15 @@ const initialState = {
   boxArray: [],
   route: 'signin',
   isSignedIn: false,
+  isProfileOpen: false,
   user: {
     id: '',
     name: '',
     email: '',
     entries: 0,
-    joined: ''
+    joined: '',
+    pet: '',
+    age: ''
   }
 }
 
@@ -43,10 +48,45 @@ class App extends Component {
     this.state = initialState;
   }
 
+  componentDidMount() {
+    const token = window.localStorage.getItem('token')
+    if(token) {
+      fetch('http://localhost:3000/signin', {
+      method: 'post',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': token
+      }
+    })
+    .then(response => response.json())
+    .then(data => {
+      if(data && data.id) {
+        fetch(`http://localhost:3000/profile/${data.id}`, {
+          method: 'get',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': token
+          }
+        })
+        .then(response => response.json())
+        .then(user => {
+          if(user && user.email) {
+            this.loadUser(user)
+            this.onRouteChange('home')
+          }
+        })
+      }
+    })
+    .catch(err => console.log(err))
+    }
+  }
+
   loadUser = (data) => {
     this.setState({user: {
       id: data.id,
       name: data.name,
+      age: data.age,
+      pet: data.pet,
       email: data.email,
       entries: data.entries,
       joined: data.joined
@@ -54,25 +94,30 @@ class App extends Component {
   }
 
   calculateFaceLocations = (data) => {
-    let clarifaiFacesArray = []
-    data.outputs[0].data.regions.forEach(faceRegion => {
-      const clarifaiFace = faceRegion.region_info.bounding_box
-
-      const image = document.getElementById('inputimage');
-      const width = Number(image.width);
-      const height = Number(image.height);
-      clarifaiFacesArray = clarifaiFacesArray.concat({
-        leftCol: clarifaiFace.left_col * width,
-        topRow: clarifaiFace.top_row * height,
-        rightCol: width - (clarifaiFace.right_col * width),
-        bottomRow: height - (clarifaiFace.bottom_row * height)
-      })
-    }) 
-    return clarifaiFacesArray
+    if(data && data.outputs) {
+      let clarifaiFacesArray = []
+      data.outputs[0].data.regions.forEach(faceRegion => {
+        const clarifaiFace = faceRegion.region_info.bounding_box
+  
+        const image = document.getElementById('inputimage');
+        const width = Number(image.width);
+        const height = Number(image.height);
+        clarifaiFacesArray = clarifaiFacesArray.concat({
+          leftCol: clarifaiFace.left_col * width,
+          topRow: clarifaiFace.top_row * height,
+          rightCol: width - (clarifaiFace.right_col * width),
+          bottomRow: height - (clarifaiFace.bottom_row * height)
+        })
+      }) 
+      return clarifaiFacesArray
+    }
+    return
   }
 
   displayFaceBoxes = (boxArray) => {
+   if(boxArray) {
     this.setState({ boxArray });
+   }
   }
 
   onInputChange = (event) => {
@@ -83,7 +128,10 @@ class App extends Component {
     this.setState({imageUrl: this.state.input});
       fetch('http://localhost:3000/imageurl', {
         method: 'post',
-        headers: {'Content-Type': 'application/json'},
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': window.localStorage.getItem('token')
+        },
         body: JSON.stringify({
           input: this.state.input
         })
@@ -93,7 +141,10 @@ class App extends Component {
         if (response) {
           fetch('http://localhost:3000/image', {
             method: 'put',
-            headers: {'Content-Type': 'application/json'},
+            headers: {
+              'Content-Type': 'application/json',
+              'Authorization': window.localStorage.getItem('token')
+            },
             body: JSON.stringify({
               id: this.state.user.id
             })
@@ -112,21 +163,54 @@ class App extends Component {
 
   onRouteChange = (route) => {
     if (route === 'signout') {
-      this.setState(initialState)
+      return this.setState(initialState)
     } else if (route === 'home') {
       this.setState({isSignedIn: true})
     }
     this.setState({route: route});
   }
 
+  toggleModal = () => {
+    this.setState(prevState => ({
+      ...prevState,
+      isProfileOpen: !prevState.isProfileOpen
+    }))
+  }
+
+  signOut = () => {
+    fetch('http://localhost:3000/signout', {
+      method: 'get',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': window.localStorage.getItem('token')
+      }
+    })
+    .then(response => response.json())
+    .then(() => {
+      window.localStorage.removeItem('token')
+      this.setState({isSignedIn: false})
+      this.onRouteChange('signin')
+    })
+    .catch(err => console.log(err))
+  }
+
   render() {
-    const { isSignedIn, imageUrl, route, boxArray } = this.state;
+    const { isSignedIn, imageUrl, route, boxArray, isProfileOpen, user, signOut } = this.state;
     return (
       <div className="App">
          <Particles className='particles'
           params={particlesOptions}
         />
-        <Navigation isSignedIn={isSignedIn} onRouteChange={this.onRouteChange} />
+        <Navigation onRouteChange={this.onRouteChange} signOut={this.signOut} isSignedIn={isSignedIn} toggleModal={this.toggleModal}/>
+        { isProfileOpen && 
+          <Modal>
+            <Profile 
+              toggleModal={this.toggleModal} 
+              loadUser={this.loadUser} 
+              user={user}
+            />
+          </Modal>
+        }
         { route === 'home'
           ? <div>
               <Logo />
